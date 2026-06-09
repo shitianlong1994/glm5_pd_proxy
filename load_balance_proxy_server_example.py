@@ -1000,6 +1000,35 @@ async def handle_responses(request: Request):
     return await _handle_completions("/responses", request)
 
 
+@app.get("/v1/models")
+async def handle_models():
+    """Forward /v1/models request to a backend instance.
+
+    In a PD-disaggregated setup all prefillers and decoders serve the same
+    model, so the response is identical regardless of which node answers.
+    We try decoders first, then fall back to prefillers.
+    """
+    headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"}
+    all_instances = proxy_state.decoders + proxy_state.prefillers
+    for server in all_instances:
+        try:
+            resp = await server.client.get("/models", headers=headers)
+            resp.raise_for_status()
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type="application/json",
+            )
+        except Exception as e:
+            logger.warning("Failed to get models from %s: %s", server, e)
+            continue
+    return Response(
+        content=json.dumps({"error": "No available backend instances"}),
+        status_code=503,
+        media_type="application/json",
+    )
+
+
 @app.get("/healthcheck")
 async def healthcheck():
     return {
