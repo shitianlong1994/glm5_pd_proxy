@@ -589,10 +589,13 @@ async def send_request_to_service(
         "aborted_request": list(aborted_requests),
     }
     req_data["stream"] = False
-    req_data["max_tokens"] = 1
-    req_data["min_tokens"] = 1
-    if "max_completion_tokens" in req_data:
-        req_data["max_completion_tokens"] = 1
+    if endpoint == "/responses":
+        req_data["max_output_tokens"] = 1
+    else:
+        req_data["max_tokens"] = 1
+        req_data["min_tokens"] = 1
+        if "max_completion_tokens" in req_data:
+            req_data["max_completion_tokens"] = 1
     if "stream_options" in req_data:
         del req_data["stream_options"]
 
@@ -990,6 +993,11 @@ async def handle_completions(request: Request):
 @with_cancellation
 async def handle_chat_completions(request: Request):
     return await _handle_completions("/chat/completions", request)
+
+@app.post("/v1/responses")
+@with_cancellation
+async def handle_responses(request: Request):
+    return await _handle_completions("/responses", request)
 
 
 @app.get("/healthcheck")
