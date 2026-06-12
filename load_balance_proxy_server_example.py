@@ -421,6 +421,11 @@ class ProxyState:
         }
         print(f"{msg} Status: {status}")
 
+class PrefillErrorResponse(Exception):
+    def __init__(self, status_code: int, content: bytes):
+        self.status_code = status_code
+        self.content = content
+
 
 proxy_state = None
 
@@ -476,7 +481,7 @@ class NodeListener:
         endpoint = "/models"
         headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"}
         try:
-            response = await client.get(endpoint, headers=headers)
+            response = await client.get(endpoint, headers=headers, timeout=4)
             response.raise_for_status()
             return True
         except (httpx.RequestError, httpx.HTTPStatusError):
@@ -607,9 +612,25 @@ async def send_request_to_service(
     for attempt in range(1, max_retries + 1):
         try:
             response = await client.post(endpoint, json=req_data, headers=headers)
-            response.raise_for_status()
+            if response.status_code >= 300:
+                if attempt < max_retries:
+                    logger.warning(
+                        "Attempt %s got status %s for %s",
+                        attempt,
+                        response.status_code,
+                        endpoint,
+                    )
+                    await asyncio.sleep(base_delay * (2 ** (attempt - 1)))
+                    continue
+                logger.error(
+                    "All %s attempts failed for %s with status %s.",
+                    max_retries,
+                    endpoint,
+                    response.status_code,
+                )
+                raise PrefillErrorResponse(response.status_code, response.content)
             return response
-        except (httpx.RequestError, httpx.HTTPStatusError) as e:
+        except httpx.RequestError as e:
             logger.warning("Attempt %s failed for %s: %s", attempt, endpoint, e)
             last_exc = e
             if attempt < max_retries:
@@ -671,15 +692,20 @@ async def _handle_select_instance(api: str, req_data: Any, request_length: int):
     prefiller_idx = proxy_state.select_prefiller(prefiller_score)
     prefiller = proxy_state.prefillers[prefiller_idx]
 
-    response = await send_request_to_service(
-        prefiller.client,
-        prefiller_idx,
-        api,
-        req_data,
-        request_id,
-        max_retries=global_args.max_retries,
-        base_delay=global_args.retry_delay,
-    )
+    try:
+        response = await send_request_to_service(
+            prefiller.client,
+            prefiller_idx,
+            api,
+            req_data,
+            request_id,
+            max_retries=global_args.max_retries,
+            base_delay=global_args.retry_delay,
+        )
+    except PrefillErrorResponse:
+        proxy_state.release_prefiller(prefiller_idx, prefiller_score)
+        raise
+
     proxy_state.release_prefiller(prefiller_idx, prefiller_score)
 
     response_json = response.json()
@@ -860,6 +886,9 @@ async def _handle_completions(api: str, request: Request):
 
         media_type = "text/event-stream; charset=utf-8" if stream_flag else "application/json"
         return StreamingResponse(generate_stream(), media_type=media_type)
+    except PrefillErrorResponse as e:
+        proxy_state.request_num -= 1
+        return Response(content=e.content, status_code=e.status_code)
     except Exception as e:
         import traceback
 
@@ -1057,7 +1086,7 @@ async def health():
         ),
     )
 
-    if any(prefiller_results) and any(decoder_results):
+    if all(prefiller_results) and all(decoder_results):
         return Response(status_code=200)
     return Response(status_code=503)
 
