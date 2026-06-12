@@ -1158,7 +1158,7 @@ async def health():
         ),
     )
 
-    if any(prefiller_results) and any(decoder_results):
+    if all(prefiller_results) and all(decoder_results):
         return Response(status_code=200)
     return Response(status_code=503)
 
