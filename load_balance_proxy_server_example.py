@@ -850,6 +850,7 @@ async def _handle_completions(api: str, request: Request):
                     instance_info.prefiller_idx, instance_info.request_id
                 )
                 release_prefiller_kv_once()
+                raise e
             finally:
                 # After streaming is done or cancelled, release tokens.
                 release_prefiller_kv_once()
@@ -868,7 +869,11 @@ async def _handle_completions(api: str, request: Request):
         print(e)
         print("".join(traceback.format_exception(*exc_info)))
         proxy_state.request_num -= 1
-        raise
+        return Response(
+            status_code=502,
+            content=json.dumps({"error": "Bad Gateway", "detail": str(e)}),
+            media_type="application/json",
+        )
 
 
 async def _handle_adjust_instances(adjust_mode: str, request: Request):
@@ -1057,7 +1062,7 @@ async def health():
         ),
     )
 
-    if any(prefiller_results) and any(decoder_results):
+    if all(prefiller_results) and all(decoder_results):
         return Response(status_code=200)
     return Response(status_code=503)
 
