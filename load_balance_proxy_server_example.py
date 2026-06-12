@@ -227,10 +227,12 @@ class ServerState:
     def __init__(self, host, port):
         self.host = host
         self.port = port
+        self.base_url = f"http://{host}:{port}"
         self.url = f"http://{host}:{port}/v1"
         try:
             ip = ipaddress.ip_address(self.host)
             if isinstance(ip, ipaddress.IPv6Address):
+                self.base_url = f"http://[{host}]:{port}"
                 self.url = f"http://[{host}]:{port}/v1"
         except Exception:
             pass
@@ -1020,6 +1022,65 @@ def trans_instances(instances: list[str]) -> list[ServerState]:
     return server_list
 
 
+def _prom_escape_label_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+def _metric_name_from_sample_line(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    first_token = stripped.split(None, 1)[0]
+    return first_token.split("{", 1)[0]
+
+
+def _inject_prom_labels(line: str, labels: dict[str, str]) -> str:
+    """Inject extra labels into a Prometheus sample line.
+
+    HELP/TYPE/comment/blank lines are returned unchanged.
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return line
+
+    parts = line.split(None, 1)
+    if len(parts) != 2:
+        return line
+
+    metric_part, value_part = parts
+    extra_labels = ",".join(
+        f'{k}="{_prom_escape_label_value(v)}"' for k, v in labels.items()
+    )
+
+    if "{" in metric_part and metric_part.endswith("}"):
+        metric_name, old_labels = metric_part.split("{", 1)
+        old_labels = old_labels[:-1]
+        if old_labels:
+            new_metric_part = f"{metric_name}{{{old_labels},{extra_labels}}}"
+        else:
+            new_metric_part = f"{metric_name}{{{extra_labels}}}"
+    else:
+        new_metric_part = f"{metric_part}{{{extra_labels}}}"
+
+    return f"{new_metric_part} {value_part}"
+
+
+async def _fetch_backend_metrics(
+    role: str,
+    server: ServerState,
+) -> tuple[str, str, str | Exception]:
+    headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"}
+    instance = str(server)
+    try:
+        # vLLM OpenAI server exposes /metrics at the root path.
+        #resp = await server.client.get("/metrics", headers=headers)
+        resp = await server.client.get(f"{server.base_url}/metrics", headers=headers)
+        resp.raise_for_status()
+        return role, instance, resp.text
+    except Exception as e:
+        return role, instance, e
+
+
 @app.post("/v1/completions")
 @with_cancellation
 async def handle_completions(request: Request):
@@ -1040,6 +1101,104 @@ async def healthcheck():
         "decode_instances": len(proxy_state.decoders),
     }
 
+
+@app.get("/health", response_class=Response)
+async def health():
+    """Expose the proxy as a single vLLM-compatible health endpoint.
+
+    Return only aggregate availability and hide internal P/D details.
+    The proxy is considered available if at least one prefiller and at least one
+    decoder are healthy.
+    """
+    prefiller_results, decoder_results = await asyncio.gather(
+        asyncio.gather(
+            *[NodeListener.check_instance_status(p.client) for p in proxy_state.prefillers],
+            return_exceptions=False,
+        ),
+        asyncio.gather(
+            *[NodeListener.check_instance_status(d.client) for d in proxy_state.decoders],
+            return_exceptions=False,
+        ),
+    )
+
+    if any(prefiller_results) and any(decoder_results):
+        return Response(status_code=200)
+    return Response(status_code=503)
+
+
+@app.get("/metrics", response_class=Response)
+async def metrics():
+    """Merge Prometheus metrics from all prefiller and decoder instances.
+
+    Raw concatenation is unsafe because P/D instances expose the same metric
+    names and often the same labels. Add role=prefill/decode and
+    instance=host:port to every sample line to avoid duplicate time series in
+    one scrape response.
+    """
+    tasks = [
+        *[_fetch_backend_metrics("prefill", p) for p in proxy_state.prefillers],
+        *[_fetch_backend_metrics("decode", d) for d in proxy_state.decoders],
+    ]
+    results = await asyncio.gather(*tasks)
+
+    emitted_meta: set[tuple[str, str]] = set()
+    out: list[str] = [
+        "# HELP vllm_proxy_backend_metrics_scrape_success "
+        "Whether scraping backend metrics succeeded.",
+        "# TYPE vllm_proxy_backend_metrics_scrape_success gauge",
+    ]
+
+    for role, instance, payload in results:
+        label_str = (
+            f'role="{_prom_escape_label_value(role)}",'
+            f'instance="{_prom_escape_label_value(instance)}"'
+        )
+
+        if isinstance(payload, Exception):
+            out.append(f"vllm_proxy_backend_metrics_scrape_success{{{label_str}}} 0")
+            continue
+
+        out.append(f"vllm_proxy_backend_metrics_scrape_success{{{label_str}}} 1")
+        out.append(f"# backend role={role} instance={instance}")
+
+        for line in payload.splitlines():
+            if not line:
+                continue
+
+            if line.startswith("# HELP ") or line.startswith("# TYPE "):
+                # Format:
+                #   # HELP metric_name ...
+                #   # TYPE metric_name gauge
+                fields = line.split(None, 3)
+                if len(fields) >= 3:
+                    meta_kind = fields[1]
+                    metric_name = fields[2]
+                    key = (meta_kind, metric_name)
+                    if key in emitted_meta:
+                        continue
+                    emitted_meta.add(key)
+                out.append(line)
+                continue
+
+            metric_name = _metric_name_from_sample_line(line)
+            if metric_name is None:
+                out.append(line)
+                continue
+
+            out.append(
+                _inject_prom_labels(
+                    line,
+                    {
+                        "role": role,
+                        "instance": instance,
+                    },
+                )
+            )
+
+    return Response(
+        content="\n".join(out) + "\n",
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 @app.post("/instances/add")
 async def handle_add_instances(request: Request):
