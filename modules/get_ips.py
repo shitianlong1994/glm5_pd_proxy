@@ -31,28 +31,8 @@ def get_rank_table(global_rank_table_path):
     return None
 
 def get_p_and_d_ips():
-    rank_table = wait_and_get_completed_global_rank_table()
-    if not rank_table:
-        return "", ""
-    all_ips = []
-    for group in rank_table.get('server_group_list', []):
-        for server in group.get('server_list', []):
-            all_ips.append(server['server_ip'])
-            
 
-    local_ip = socket.gethostbyname(socket.gethostname())
-
-    if local_ip in all_ips:
-        p_ip = local_ip
-        # 在列表中过滤掉本地 IP，剩下的就是 D 节点的 IP
-        d_ips = [ip for ip in all_ips if ip != local_ip]
-        d_ip = d_ips[0] if d_ips else local_ip
-    else:
-        # 兜底机制：万一 local_ip 没匹配上，按顺序取前两个
-        p_ip = all_ips[0]
-        d_ip = all_ips[1] if len(all_ips) > 1 else all_ips[0]
-
-    return p_ip, d_ip
+    return "192.168.0.203" , "192.168.0.50"
 
 if __name__ == '__main__':
     p_ip, d_ip = get_p_and_d_ips()

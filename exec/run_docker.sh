@@ -1,5 +1,5 @@
-export IMAGE=export IMAGE=glm5_1_vllm_0180_fix_0531:v1
-export NAME=glm5_1_0531
+export IMAGE=export IMAGE=swr.cn-north-9.myhuaweicloud.com/swr-prod-wl/glm5_1_vllm_0180_mooncake0311_0619:v1
+export NAME=glm5_1_physical_0630
 docker run -itd \
     --name $NAME \
     --privileged=true \
@@ -33,5 +33,5 @@ docker run -itd \
     -v /etc/hccn.conf:/etc/hccn.conf \
     -v /mnt/sfs_turbo/.cache:/root/.cache \
     -v /mnt/sfs_turbo/:/mnt/sfs_turbo/ \
-    -v /home:/home \
+    -v /mnt/sfs_turbo_glm5/:/mnt/sfs_turbo_glm5/ \
     -it $IMAGE bash
