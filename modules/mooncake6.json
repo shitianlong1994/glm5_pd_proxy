@@ -1,0 +1,13 @@
+{
+    "metadata_server": "etcd://etcd6-0.etcd6-headless.default.svc.cluster.local:38379;etcd6-1.etcd6-headless.default.svc.cluster.local:38379;etcd6-2.etcd6-headless.default.svc.cluster.local:38379",
+    "protocol": "ascend",
+    "device_name": "",
+    "master_server_address": "etcd://etcd6-0.etcd6-headless.default.svc.cluster.local:38379;etcd6-1.etcd6-headless.default.svc.cluster.local:38379;etcd6-2.etcd6-headless.default.svc.cluster.local:38379",
+    "global_segment_size": "60GB",
+    "preferred_segment": false,
+    "prefer_alloc_in_same_node": true,
+    "lease_timeout_ms": 300000,
+    "session_timeout_ms": 300000,
+    "retry_count": 3,
+    "retry_interval_ms": 1000
+}
