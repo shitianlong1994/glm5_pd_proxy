@@ -29,7 +29,6 @@ export TP_SOCKET_IFNAME=$nic_name
 export HCCL_IF_IP=$local_ip
 export HCCL_SOCKET_IFNAME=$nic_name
 
-export HCCL_RDMA_TIMEOUT=20
 export HCCL_CONNECT_TIMEOUT=1800
 export HCCL_EXEC_TIMEOUT=3000
 export HCCL_BUFFSIZE=256
@@ -44,8 +43,6 @@ export OMP_PROC_BIND=false
 export OMP_NUM_THREADS=1
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 
-export ASCEND_CONNECT_TIMEOUT=60000
-export ASCEND_TRANSFER_TIMEOUT=10000
 export VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT=480
 export ASCEND_AGGREGATE_ENABLE=1
 export ASCEND_TRANSPORT_PRINT=1
@@ -54,7 +51,6 @@ export ASCEND_A3_ENABLE=1
 export VLLM_HTTP_TIMEOUT_KEEP_ALIVE=3605
 export VLLM_RPC_TIMEOUT=3600000
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=30000
-export ASCEND_AUTO_CONNECT=1
 
 #export ASCEND_BUFFER_POOL=4:8
 export PYTHONHASHSEED=1234
@@ -83,7 +79,7 @@ export ASCEND_RT_VISIBLE_DEVICES=$1
 VLLM_LOG_DIR=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/${INFER_INSTANCE_ID}/vllm
 mkdir -p ${VLLM_LOG_DIR}
 
-vllm serve /mnt/sfs_turbo/weight/GLM-5.1-w4a8/ \
+vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.1-w4a8 \
     --host 0.0.0.0 \
     --port $2 \
     --data-parallel-size $3 \
@@ -114,36 +110,20 @@ vllm serve /mnt/sfs_turbo/weight/GLM-5.1-w4a8/ \
     --reasoning-parser glm45 \
     --kv-transfer-config \
     '{
-    "kv_connector": "MultiConnector",
-    "kv_role": "kv_consumer",
-    "kv_load_failure_policy": "recompute",
-    "kv_connector_extra_config": {
-        "connectors": [
-            {
-                "kv_connector": "MooncakeConnectorV1",
-                "kv_role": "kv_consumer",
-                "kv_port": "30100",
-                "kv_connector_extra_config": {
-                    "use_ascend_direct": true,
-                    "prefill": {
-                        "dp_size": 2,
-                        "tp_size": 8
-                    },
-                    "decode": {
-                        "dp_size": 8,
-                        "tp_size": 2
-                    }
-                }
+        "kv_connector": "MooncakeConnectorV1",
+        "kv_role": "kv_consumer",
+        "kv_port": "30100",
+        "engine_id": "1",
+        "kv_connector_extra_config": {
+            "use_ascend_direct": true,
+            "prefill": {
+                "dp_size": 2,
+                "tp_size": 8
             },
-            {
-                "kv_connector": "AscendStoreConnector",
-                "kv_role": "kv_consumer",
-                "kv_connector_extra_config": {
-                    "lookup_rpc_port": "0",
-                    "backend": "mooncake"
-                }
+            "decode": {
+                "dp_size": 8,
+                "tp_size": 2
             }
-        ]
-    }
+        }
     }' 2>&1 | tee >(grep --line-buffered -E "/metrics|/health|/models" >> "${VLLM_LOG_DIR}/metrics.log") >(grep --line-buffered -v -E "/metrics|/health|/models" >> "${VLLM_LOG_DIR}/vllm.log")
 
