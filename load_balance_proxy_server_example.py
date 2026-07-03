@@ -132,6 +132,30 @@ class InstanceType:
 
 TAINT_PRIORITY = 1e15
 
+def extract_cached_tokens(response_json: dict) -> int | None:
+    usage = response_json.get("usage") or {}
+    prompt_tokens_details = usage.get("prompt_tokens_details") or {}
+    cached_tokens = prompt_tokens_details.get("cached_tokens")
+    return cached_tokens if isinstance(cached_tokens, int) else 0
+
+def update_cached_tokens_in_chunk(chunk_json: dict, cached_tokens: int | None) -> bool:
+    if cached_tokens is None:
+        return False
+    usage = chunk_json.get("usage")
+    if not isinstance(usage, dict):
+        return False
+    prompt_tokens_details = usage.get("prompt_tokens_details")
+    if not isinstance(prompt_tokens_details, dict):
+        prompt_tokens_details = {}
+        usage["prompt_tokens_details"] = prompt_tokens_details
+    prompt_tokens_details["cached_tokens"] = cached_tokens
+    return True
+
+
+def encode_response_chunk(chunk_json: dict, is_sse: bool) -> bytes:
+    chunk = json.dumps(chunk_json, ensure_ascii=False).encode("utf-8")
+    return b"data: " + chunk + b"\n\n" if is_sse else chunk
+
 
 class ServerState:
     def __init__(self, host, port):
@@ -481,7 +505,7 @@ class NodeListener:
         endpoint = "/models"
         headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"}
         try:
-            response = await client.get(endpoint, headers=headers, timeout=4)
+            response = await client.get(endpoint, headers=headers)
             response.raise_for_status()
             return True
         except (httpx.RequestError, httpx.HTTPStatusError):
@@ -705,6 +729,7 @@ async def _handle_select_instance(api: str, req_data: Any, request_length: int):
     except PrefillErrorResponse:
         proxy_state.release_prefiller(prefiller_idx, prefiller_score)
         raise
+    
 
     proxy_state.release_prefiller(prefiller_idx, prefiller_score)
 
@@ -713,6 +738,7 @@ async def _handle_select_instance(api: str, req_data: Any, request_length: int):
     if kv_transfer_params:
         req_data["kv_transfer_params"] = kv_transfer_params
 
+    prefiller_cached_tokens = extract_cached_tokens(response_json)
     decoder_score = proxy_state.calculate_decode_scores(request_length)
     logger.debug("Decoder score: %f", decoder_score)
 
@@ -728,6 +754,7 @@ async def _handle_select_instance(api: str, req_data: Any, request_length: int):
         decoder=decoder,
         decoder_idx=decoder_idx,
         decoder_score=decoder_score,
+        prefiller_cached_tokens=prefiller_cached_tokens,
     )
 
 
@@ -740,7 +767,44 @@ class InstanceInfo:
     decoder_idx: int
     decoder_score: float
     decoder: ServerState
+    prefiller_cached_tokens: int | None = None
 
+
+async def _handle_tokenize(api: str, request: Request):
+    proxy_state.request_num += 1
+    req_data = await request.json()
+    req_body = await request.body()
+    request_length = len(req_body)
+    prefiller_score = proxy_state.calculate_prefill_scores(request_length)
+    logger.debug("Request length: %s, Prefiller score: %s", request_length, prefiller_score)
+
+    request_id = await proxy_state.next_req_id()
+
+    prefiller_idx = proxy_state.select_prefiller(prefiller_score)
+    prefiller = proxy_state.prefillers[prefiller_idx]
+
+    try:
+        response = await send_request_to_service(
+            prefiller.client,
+            prefiller_idx,
+            f"{prefiller.base_url}/tokenize",
+            req_data,
+            request_id,
+            max_retries=global_args.max_retries,
+            base_delay=global_args.retry_delay,
+        )
+    except PrefillErrorResponse:
+        raise
+    finally:
+        proxy_state.release_prefiller_kv(prefiller_idx, prefiller_score)
+        proxy_state.release_prefiller(prefiller_idx, prefiller_score)
+        proxy_state.request_num -= 1
+
+    return Response(
+        content=response.content,
+        status_code=response.status_code,
+        media_type="application/json",
+    )
 
 async def _handle_completions(api: str, request: Request):
     try:
@@ -770,6 +834,7 @@ async def _handle_completions(api: str, request: Request):
             retry_count = 0
             retry = True
             completion_tokens = 0
+            reported_prefiller_cached_tokens = instance_info.prefiller_cached_tokens
 
             def release_prefiller_kv_once():
                 nonlocal released_kv
@@ -802,7 +867,8 @@ async def _handle_completions(api: str, request: Request):
 
                         if not chunk_str:
                             continue
-                        if chunk_str.startswith("data: "):
+                        is_sse = chunk_str.startswith("data: ")
+                        if is_sse:
                             chunk_str = chunk_str[len("data: ") :]
 
                         try:
@@ -815,6 +881,8 @@ async def _handle_completions(api: str, request: Request):
 
                         choices = chunk_json.get("choices", [])
                         if not choices:
+                            if update_cached_tokens_in_chunk(chunk_json, reported_prefiller_cached_tokens):
+                                chunk = encode_response_chunk(chunk_json, is_sse)
                             yield chunk
                             continue
 
@@ -853,12 +921,18 @@ async def _handle_completions(api: str, request: Request):
                             )
                             break
 
+                        chunk_updated = False
                         if retry_count > 0 and not stream_flag:
                             if chat_flag:
                                 choice["message"]["content"] = generated_token
                             else:
                                 choice["text"] = generated_token
-                            chunk = json.dumps(chunk_json).encode("utf-8")
+                            chunk_updated = True
+
+                        if update_cached_tokens_in_chunk(chunk_json, reported_prefiller_cached_tokens):
+                            chunk_updated = True
+                        if chunk_updated:
+                            chunk = encode_response_chunk(chunk_json, is_sse)
 
                         yield chunk
             except asyncio.CancelledError:
@@ -1028,6 +1102,10 @@ async def handle_chat_completions(request: Request):
 async def handle_responses(request: Request):
     return await _handle_completions("/responses", request)
 
+@app.post("/tokenize")
+@with_cancellation
+async def handle_tokenize(request: Request):
+    return await _handle_tokenize("/tokenize", request)
 
 @app.get("/v1/models")
 async def handle_models():
@@ -1181,4 +1259,4 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    uvicorn.run(app, host=global_args.host, port=global_args.port)
+    uvicorn.run(app, host=global_args.host, port=global_args.port, timeout_keep_alive=3602)
