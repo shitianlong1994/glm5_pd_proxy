@@ -31,13 +31,12 @@ export HCCL_SOCKET_IFNAME=$nic_name
 
 export HCCL_CONNECT_TIMEOUT=1800
 export HCCL_EXEC_TIMEOUT=3000
-export HCCL_BUFFSIZE=256
+export HCCL_BUFFSIZE=512
 export HCCL_OP_EXPANSION_MODE="AIV"
 export HCCL_INTRA_ROCE_ENABLE=1
 export HCCL_IF_BASE_PORT=64000
 
 export VLLM_ENGINE_READY_TIMEOUT_S=3600
-export CUDA_LAUNCH_BLOCKING=1
 export VLLM_ENGINE_DEBUG_LOGGING=1
 export OMP_PROC_BIND=false
 export OMP_NUM_THREADS=1
@@ -52,34 +51,29 @@ export VLLM_HTTP_TIMEOUT_KEEP_ALIVE=3605
 export VLLM_RPC_TIMEOUT=3600000
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=30000
 
+
 #export ASCEND_BUFFER_POOL=4:8
 export PYTHONHASHSEED=1234
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+export VLLM_ASCEND_ENABLE_SFA_KV_QUANT_SPARSE_ATTENTION=1
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/lib64
 export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH
 #export LD_LIBRARY_PATH=/usr/local/Ascend/cann-8.5.1/python/site-packages/mooncake:$LD_LIBRARY_PATH
 #export PYTHONPATH=$PYTHONPATH:/vllm-workspace/vllm
 
 ## export plog
-export INFER_SERVICE_ID=`echo $HOSTNAME | awk -F'-' '{print $6}'`
-export INFER_INSTANCE_ID=`echo $HOSTNAME | awk -F'-' '{print $(NF-3)"-"$(NF-2)"-"$(NF-1)"-"$NF}'`
-
-export ASCEND_PROCESS_LOG_PATH=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/${INFER_INSTANCE_ID}/ascend
-
-#export MC_TRANSFER_TIMEOUT=120
-#export MOONCAKE_TRANSFER_TIMEOUT=120
-#export MOONCAKE_CONNECT_TIMEOUT_MS=600000
-
+export INFER_SERVICE_ID=`echo $HOSTNAME | awk -F'.' '{print $1}'`
+ascend_log_dir=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}
+rm -rf $ascend_log_dir
+export ASCEND_PROCESS_LOG_PATH=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/ascend
 export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
-
 export ASCEND_RT_VISIBLE_DEVICES=$1
-#export MOONCAKE_CONFIG_PATH="/mnt/sfs_turbo/scripts/GLM_5_1_scripts/modules/mooncake.json"
 
 ## export vllm env
-VLLM_LOG_DIR=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/${INFER_INSTANCE_ID}/vllm
+VLLM_LOG_DIR=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/vllm
 mkdir -p ${VLLM_LOG_DIR}
 
-vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.1-w4a8 \
+vllm serve /mnt/sfs_turbo/weight/GLM-5.2-W4A8C8 \
     --host 0.0.0.0 \
     --port $2 \
     --data-parallel-size $3 \
@@ -88,7 +82,7 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.1-w4a8 \
     --data-parallel-rpc-port $6 \
     --tensor-parallel-size $7 \
     --enable-expert-parallel \
-    --speculative-config '{"num_speculative_tokens": 3,  "method":"deepseek_mtp"}' \
+    --speculative-config '{"num_speculative_tokens": 3, "method":"deepseek_mtp","enforce_eager":true}' \
     --profiler-config \
     '{"profiler": "torch",
     "torch_profiler_dir": "./vllm_profile",
@@ -96,17 +90,17 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.1-w4a8 \
     --seed 1024 \
     --served-model-name glm-5 \
     --max-model-len 180000 \
+    --additional-config '{"fuse_muls_add": true, "multistream_overlap_shared_expert": true, "ascend_compilation_config": {"enable_npugraph_ex": true},"layer_sharding":["q_b_proj","o_proj"]}' \
     --max-num-batched-tokens 4096 \
-    --additional-config '{"fuse_muls_add": true, "multistream_overlap_shared_expert": true, "recompute_scheduler_enable": true, "ascend_compilation_config": {"enable_npugraph_ex": true},"layer_sharding":["q_b_proj","o_proj"]}' \
     --trust-remote-code \
     --max-num-seqs 64 \
-    --enforce-eager \
-    --enable-chunked-prefill \
-    --enable-prefix-caching \
-    --enable-prompt-tokens-details \
-    --gpu-memory-utilization 0.88 \
-    --quantization ascend \
     --async-scheduling \
+    --enable-prefix-caching \
+    --enable-chunked-prefill \
+    --quantization ascend \
+    --gpu-memory-utilization 0.88 \
+    --enforce-eager \
+    --disable-hybrid-kv-cache-manager \
     --enable-auto-tool-choice \
     --tool-call-parser glm47 \
     --reasoning-parser glm45 \
@@ -123,8 +117,8 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.1-w4a8 \
                 "tp_size": 8
             },
             "decode": {
-                "dp_size": 8,
-                "tp_size": 2
+                "dp_size": 4,
+                "tp_size": 4
             }
         }
     }' 2>&1 | tee >(grep --line-buffered -E "/metrics|/health|/models" >> "${VLLM_LOG_DIR}/metrics.log") >(grep --line-buffered -v -E "/metrics|/health|/models" >> "${VLLM_LOG_DIR}/vllm.log")

@@ -1,10 +1,10 @@
-export IMAGE=export IMAGE=swr.cn-north-9.myhuaweicloud.com/swr-prod-wl/glm5_1_vllm_0180_mooncake0311_0619:v1
-export NAME=glm5_1_physical_0630
+export IMAGE=swr.cn-north-12.myhuaweicloud.com/swr-prod-wl-hb3/vllm-ascend:nightly-main-a3-0706-v1
+export NAME=glm5_2_w4a8_0707_stl
 docker run -itd \
     --name $NAME \
     --privileged=true \
     --net=host \
-    --shm-size=512g \
+    --shm-size=1024g \
     --device /dev/davinci0 \
     --device /dev/davinci1 \
     --device /dev/davinci2 \
@@ -34,4 +34,7 @@ docker run -itd \
     -v /mnt/sfs_turbo/.cache:/root/.cache \
     -v /mnt/sfs_turbo/:/mnt/sfs_turbo/ \
     -v /mnt/sfs_turbo_glm5/:/mnt/sfs_turbo_glm5/ \
+    -v $HOME/.claude:/root/.claude \
+    -v $HOME/.anthropic:/root/.anthropic \
+    -e CLAUDE_CONFIG_DIR=/root/.claude \
     -it $IMAGE bash
