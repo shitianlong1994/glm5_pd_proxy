@@ -32,7 +32,7 @@ def get_rank_table(global_rank_table_path):
 
 def get_p_and_d_ips():
 
-    return "192.168.0.203" , "192.168.0.194"
+    return "192.168.0.203" , "192.168.0.78"
 
 if __name__ == '__main__':
     p_ip, d_ip = get_p_and_d_ips()

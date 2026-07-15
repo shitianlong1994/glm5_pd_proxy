@@ -31,17 +31,17 @@ export HCCL_SOCKET_IFNAME=$nic_name
 
 export HCCL_CONNECT_TIMEOUT=1800
 export HCCL_EXEC_TIMEOUT=3000
-export HCCL_BUFFSIZE=256
 export HCCL_OP_EXPANSION_MODE="AIV"
 export HCCL_INTRA_ROCE_ENABLE=1
 export HCCL_IF_BASE_PORT=64000
 
 export VLLM_ENGINE_READY_TIMEOUT_S=3600
 export CUDA_LAUNCH_BLOCKING=1
-export VLLM_ENGINE_DEBUG_LOGGING=1
 export OMP_PROC_BIND=false
 export OMP_NUM_THREADS=1
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+export HCCL_BUFFSIZE=500
+
 
 export VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT=480
 export ASCEND_AGGREGATE_ENABLE=1
@@ -64,7 +64,6 @@ ascend_log_dir=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/
 rm -rf $ascend_log_dir
 export ASCEND_PROCESS_LOG_PATH=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/ascend
 
-export VLLM_ASCEND_ENABLE_MLAPO=1
 export TASK_QUEUE_ENABLE=1
 
 export ASCEND_RT_VISIBLE_DEVICES=$1
@@ -76,7 +75,7 @@ export VLLM_ASCEND_ENABLE_SFA_PROLOG_V3=1
 VLLM_LOG_DIR=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/${INFER_INSTANCE_ID}/vllm
 mkdir -p ${VLLM_LOG_DIR}
 
-vllm serve /mnt/sfs_turbo/weight/GLM-5.2-W4A8C8 \
+vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-W4A8C8 \
     --host 0.0.0.0 \
     --port $2 \
     --data-parallel-size $3 \
@@ -93,13 +92,13 @@ vllm serve /mnt/sfs_turbo/weight/GLM-5.2-W4A8C8 \
     --seed 1024 \
     --served-model-name glm-5 \
     --disable-hybrid-kv-cache-manager \
-    --max-model-len 180000 \
-    --max-num-batched-tokens 32 \
-    --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY", "cudagraph_capture_sizes":[4, 8, 12, 16, 20, 24, 28, 32]}' \
-    --additional-config '{"fuse_muls_add": true, "multistream_overlap_shared_expert": true, "recompute_scheduler_enable": true, "ascend_compilation_config": {"enable_npugraph_ex": true}}' \
+    --max-model-len 135000 \
+    --max-num-batched-tokens 128 \
+    --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+    --additional-config '{"fuse_muls_add": true, "multistream_overlap_shared_expert": true, "recompute_scheduler_enable": true, "ascend_compilation_config": {"enable_npugraph_ex": false},"enable_sparse_c8": true}' \
     --trust-remote-code \
     --speculative-config '{"num_speculative_tokens": 3, "method":"deepseek_mtp","enforce_eager":true}' \
-    --max-num-seqs 8 \
+    --max-num-seqs 48 \
     --gpu-memory-utilization 0.92 \
     --async-scheduling \
     --enable-prefix-caching \

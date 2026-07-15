@@ -1,5 +1,5 @@
-export IMAGE=swr.cn-north-12.myhuaweicloud.com/swr-prod-wl-hb3/vllm-ascend:nightly-main-a3-0706-v1
-export NAME=glm5_2_w4a8_0707_stl
+export IMAGE=vllm_ascend:0714
+export NAME=glm5_2_w4a8_0714_stl_test
 docker run -itd \
     --name $NAME \
     --privileged=true \
