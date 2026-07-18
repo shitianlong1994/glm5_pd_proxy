@@ -30,12 +30,16 @@ export HCCL_SOCKET_IFNAME=$nic_name
 
 export OMP_PROC_BIND=false
 export OMP_NUM_THREADS=1
+export PYTHONHASHSEED=0
+moon_cake_config=$(realpath ../../modules/mooncake.json)
+export MOONCAKE_CONFIG_PATH=$moon_cake_config
 
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 export HCCL_BUFFSIZE=512
 export ACL_OP_INIT_MODE=1
 export ASCEND_A3_ENABLE=1
-export HCCL_INTRA_ROCE_ENABLE=1
+export ASCEND_ENABLE_USE_FABRIC_MEM=1
+# export HCCL_INTRA_ROCE_ENABLE=1
 export VLLM_NIXL_ABORT_REQUEST_TIMEOUT=300000
 
 export ASCEND_RT_VISIBLE_DEVICES=$1
@@ -56,7 +60,7 @@ export ASCEND_PROCESS_LOG_PATH=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/ascend
 VLLM_LOG_DIR=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/vllm
 mkdir -p ${VLLM_LOG_DIR}
 
-vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-W4A8C8 \
+vllm serve /mnt/sfs_turbo/model/GLM-5.2-w4a8c8-0716/ \
     --host 0.0.0.0 \
     --port $2 \
     --data-parallel-size $3 \
@@ -65,7 +69,7 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-W4A8C8 \
     --data-parallel-rpc-port $6 \
     --tensor-parallel-size $7 \
     --enable-expert-parallel \
-    --speculative-config '{"num_speculative_tokens": 5, "method":"deepseek_mtp","enforce_eager":true}' \
+    --speculative-config '{"num_speculative_tokens": 1, "method":"deepseek_mtp","enforce_eager":true}' \
     --profiler-config \
     '{"profiler": "torch",
     "torch_profiler_dir": "./vllm_profile",
@@ -73,13 +77,13 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-W4A8C8 \
     --seed 1024 \
     --served-model-name glm-5 \
     --max-model-len 204800 \
-    --additional-config '{"fuse_muls_add": true,"enable_dsa_cp": true, "enable_fused_mc2": true, "multistream_overlap_shared_expert": true, "recompute_scheduler_enable": true, "ascend_compilation_config": {"enable_npugraph_ex": false},"enable_sparse_c8": true}' \
+    --additional-config '{"fuse_muls_add": true,"enable_dsa_cp": true, "enable_fused_mc2": true, "multistream_overlap_shared_expert": true, "recompute_scheduler_enable": true, "ascend_compilation_config": {"enable_npugraph_ex": false},"enable_sparse_c8": true, "enable_reshape_optim": true}' \
     --max-num-batched-tokens 4096 \
     --trust-remote-code \
     --max-num-seqs 80 \
     --async-scheduling \
-    --enable-prefix-caching \
     --enable-chunked-prefill \
+    --enable-prefix-caching \
     --quantization ascend \
     --gpu-memory-utilization 0.95 \
     --enforce-eager \
@@ -89,19 +93,34 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-W4A8C8 \
     --reasoning-parser glm45 \
     --kv-transfer-config \
     '{
-        "kv_connector": "MooncakeConnectorV1",
-        "kv_role": "kv_producer",
-        "kv_port": "30000",
-        "engine_id": "0",
-        "kv_connector_extra_config": {
-            "use_ascend_direct": true,
-            "prefill": {
-                "dp_size": 2,
-                "tp_size": 8
+    "kv_connector": "MultiConnector",
+    "kv_role": "kv_producer",
+    "kv_load_failure_policy": "recompute",
+    "kv_connector_extra_config": {
+        "connectors": [
+            {
+                "kv_connector": "MooncakeConnectorV1",
+                "kv_role": "kv_producer",
+                "kv_port": "30000",
+                "kv_connector_extra_config": {
+                    "prefill": {
+                        "dp_size": 2,
+                        "tp_size": 8
+                    },
+                    "decode": {
+                        "dp_size": 4,
+                        "tp_size": 4
+                    }
+                }
             },
-            "decode": {
-                "dp_size": 4,
-                "tp_size": 4
+            {
+                "kv_connector": "AscendStoreConnector",
+                "kv_role": "kv_producer",
+                "kv_connector_extra_config": {
+                    "lookup_rpc_port":"0",
+                    "backend": "mooncake"
+                }
             }
-        }
+        ]
+    }
     }' 2>&1 | tee >(grep --line-buffered -E "/metrics|/health|/models" >> "${VLLM_LOG_DIR}/metrics.log") >(grep --line-buffered -v -E "/metrics|/health|/models" >> "${VLLM_LOG_DIR}/vllm.log")

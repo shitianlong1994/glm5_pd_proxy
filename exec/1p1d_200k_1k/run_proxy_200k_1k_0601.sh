@@ -47,7 +47,7 @@ mkdir -p "$VLLM_LOG_DIR"
 
 # 启动proxy
 python ../../modules/1p1d_200k/load_balance_proxy_server_example.py \
-    --port 8000 \
+    --port 8077 \
     --host 0.0.0.0 \
     --prefiller-hosts $prefiller_hosts \
     --prefiller-ports 6700 6701 \
