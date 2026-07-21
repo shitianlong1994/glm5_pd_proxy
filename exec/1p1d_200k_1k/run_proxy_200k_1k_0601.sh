@@ -8,7 +8,7 @@
 read node_p_ip node_d_ip <<< $(PYTHONUNBUFFERED=1 python ../../modules/get_ips.py)
 
 PREFILL_REPEAT=2      # P节点重复次数（2个P实例）
-DECODER_REPEAT=4      # D节点重复次数（8个D实例）
+DECODER_REPEAT=8      # D节点重复次数（8个D实例）
 
 # 自动生成参数
 prefiller_hosts=""
@@ -52,4 +52,4 @@ python ../../modules/1p1d_200k/load_balance_proxy_server_example.py \
     --prefiller-hosts $prefiller_hosts \
     --prefiller-ports 6700 6701 \
     --decoder-hosts $decoder_hosts \
-    --decoder-ports 6721 6722 6723 6724 2>&1|tee -a "${VLLM_LOG_DIR}/proxy.log"
+    --decoder-ports 6721 6722 6723 6724 6725 6726 6727 6728 2>&1|tee -a "${VLLM_LOG_DIR}/proxy.log"

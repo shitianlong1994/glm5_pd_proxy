@@ -40,8 +40,8 @@ export ASCEND_AGGREGATE_ENABLE=1
 export ASCEND_TRANSPORT_PRINT=1
 export ACL_OP_INIT_MODE=1
 export ASCEND_A3_ENABLE=1
-export ASCEND_ENABLE_USE_FABRIC_MEM=1
-# export HCCL_INTRA_ROCE_ENABLE=1
+
+export HCCL_INTRA_ROCE_ENABLE=1
 export VLLM_NIXL_ABORT_REQUEST_TIMEOUT=300000
 export PYTHONHASHSEED=0
 moon_cake_config=$(realpath ../../modules/mooncake.json)
@@ -49,8 +49,6 @@ export MOONCAKE_CONFIG_PATH=$moon_cake_config
 
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/lib64
-export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:$LD_LIBRARY_PATH
 
 ## export plog
 export INFER_SERVICE_ID=`echo $HOSTNAME | awk -F'.' '{print $1}'`
@@ -60,15 +58,13 @@ export ASCEND_PROCESS_LOG_PATH=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/ascend
 
 export TASK_QUEUE_ENABLE=1
 export ASCEND_RT_VISIBLE_DEVICES=$1
-export VLLM_ASCEND_ENABLE_FUSED_MC2=0
-export VLLM_ASCEND_ENABLE_SFA_KV_QUANT_SPARSE_ATTENTION=1
-export VLLM_ASCEND_ENABLE_SFA_PROLOG_V3=1
+export VLLM_ASCEND_ENABLE_FUSED_MC2=1
 
 ## export vllm env
 VLLM_LOG_DIR=/mnt/sfs_turbo/logs/${INFER_SERVICE_ID}/${INFER_INSTANCE_ID}/vllm
 mkdir -p ${VLLM_LOG_DIR}
 
-vllm serve /mnt/sfs_turbo/model/GLM-5.2-w4a8c8-0716/ \
+vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-w4a8c8-0716/ \
     --host 0.0.0.0 \
     --port $2 \
     --data-parallel-size $3 \
@@ -87,13 +83,12 @@ vllm serve /mnt/sfs_turbo/model/GLM-5.2-w4a8c8-0716/ \
     --max-model-len 204800 \
     --max-num-batched-tokens 128 \
     --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
-    --additional-config '{"fuse_muls_add": true, "multistream_overlap_shared_expert": true, "enable_fused_mc2": true, "recompute_scheduler_enable": true, "ascend_compilation_config": {"enable_npugraph_ex": false},"enable_sparse_c8": true, "enable_reshape_optim": true}' \
+    --additional-config '{"recompute_scheduler_enable": true, "enable_sparse_sfa_c8": true, "enable_sparse_li_c8": true}' \
     --trust-remote-code \
     --speculative-config '{"num_speculative_tokens": 5, "method":"deepseek_mtp","enforce_eager":true}' \
     --max-num-seqs 48 \
     --gpu-memory-utilization 0.92 \
     --async-scheduling \
-    --no-enable-prefix-caching \
     --quantization ascend \
     --enable-auto-tool-choice \
     --tool-call-parser glm47 \
@@ -115,8 +110,8 @@ vllm serve /mnt/sfs_turbo/model/GLM-5.2-w4a8c8-0716/ \
                         "tp_size": 8
                     },
                     "decode": {
-                        "dp_size": 4,
-                        "tp_size": 4
+                        "dp_size": 8,
+                        "tp_size": 2
                     }
                 }
             },

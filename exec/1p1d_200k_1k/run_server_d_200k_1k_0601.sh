@@ -34,9 +34,9 @@ export HCCL_SOCKET_IFNAME=$nic_name
 
 # 执行拉起python脚本
 python  ../../modules/1p1d_200k/launch_online_d.py \
-    --dp-size 4\
-    --tp-size 4 \
-    --dp-size-local 4 \
+    --dp-size 8\
+    --tp-size 2 \
+    --dp-size-local 8 \
     --dp-rank-start 0 \
     --dp-address "$local_ip" \
     --dp-rpc-port 10523 \

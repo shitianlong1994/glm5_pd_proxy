@@ -1,6 +1,6 @@
-export IMAGE=quay.io/ascend/vllm-ascend:nightly-releases-v0.23.0-a3
 TODAY=$(date +%Y%m%d%H)
-export NAME=glm5_2_w4a8_memcache_${TODAY}_stl
+export IMAGE=quay.m.daocloud.io/ascend/vllm-ascend:v0.23.0rc1-a3
+export NAME=glm5_2_suanzhi_0721
 docker run -itd \
     --name $NAME \
     --privileged=true \
