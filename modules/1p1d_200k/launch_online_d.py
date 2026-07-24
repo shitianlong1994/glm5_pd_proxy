@@ -68,10 +68,10 @@ dp_address = args.dp_address
 dp_rpc_port = args.dp_rpc_port
 vllm_start_port = args.vllm_start_port
 
-def run_command(visible_devices, dp_rank, vllm_engine_port):
+def run_command(template_path, visible_devices, dp_rank, vllm_engine_port):
     command = [
         "bash",
-        "../../modules/1p1d_200k/run_d_template.sh",
+        template_path,
         visible_devices,
         str(vllm_engine_port),
         str(dp_size),
@@ -83,7 +83,11 @@ def run_command(visible_devices, dp_rank, vllm_engine_port):
     subprocess.run(command, check=True)
 
 if __name__ == "__main__":
-    template_path = "../../modules/1p1d_200k/run_d_template.sh"
+    if os.getenv("RUN_DCP"):
+        template_path = "../../modules/1p1d_200k/run_d_template_dcp.sh"
+    else:
+        template_path = "../../modules/1p1d_200k/run_d_template.sh"
+    print("="*10+f"Template file {template_path}."+"="*10)
     if not os.path.exists(template_path):
         print(f"Template file {template_path} does not exist.")
         sys.exit(1)
@@ -95,7 +99,7 @@ if __name__ == "__main__":
         vllm_engine_port = vllm_start_port + i
         visible_devices = ",".join(str(x) for x in range(i * tp_size, (i + 1) * tp_size))
         process = multiprocessing.Process(target=run_command,
-                                        args=(visible_devices, dp_rank,
+                                        args=(template_path, visible_devices, dp_rank,
                                                 vllm_engine_port))
         processes.append(process)
         process.start()

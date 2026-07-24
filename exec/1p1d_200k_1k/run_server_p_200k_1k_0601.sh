@@ -32,13 +32,27 @@ export TP_SOCKET_IFNAME=$nic_name
 export HCCL_IF_IP=$local_ip
 export HCCL_SOCKET_IFNAME=$nic_name
 
-# 执行拉起python脚本
-python  ../../modules/1p1d_200k/launch_online_p.py \
-    --dp-size 2 \
-    --tp-size 8 \
-    --dp-size-local 2 \
-    --dp-rank-start 0 \
-    --dp-address "$local_ip" \
-    --dp-rpc-port 10521 \
-    --vllm-start-port 6700 \
-    --nic_name "$nic_name"
+# 根据 RUN_DCP 环境变量选择 base 或 DCP 配置参数
+if [ -n "$RUN_DCP" ]; then
+    echo "RUN_DCP is set, using DCP configuration"
+    python ../../modules/1p1d_200k/launch_online_p.py \
+        --dp-size 1 \
+        --tp-size 16 \
+        --dp-size-local 1 \
+        --dp-rank-start 0 \
+        --dp-address "$local_ip" \
+        --dp-rpc-port 10521 \
+        --vllm-start-port 6700 \
+        --nic_name "$nic_name"
+else
+    echo "RUN_DCP is not set, using base configuration"
+    python  ../../modules/1p1d_200k/launch_online_p.py \
+        --dp-size 2 \
+        --tp-size 8 \
+        --dp-size-local 2 \
+        --dp-rank-start 0 \
+        --dp-address "$local_ip" \
+        --dp-rpc-port 10521 \
+        --vllm-start-port 6700 \
+        --nic_name "$nic_name"
+fi

@@ -35,7 +35,7 @@ moon_cake_config=$(realpath ../../modules/mooncake.json)
 export MOONCAKE_CONFIG_PATH=$moon_cake_config
 
 export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
-export HCCL_BUFFSIZE=512
+export HCCL_BUFFSIZE=256
 export ACL_OP_INIT_MODE=1
 export ASCEND_A3_ENABLE=1
 export HCCL_INTRA_ROCE_ENABLE=1
@@ -73,7 +73,7 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-w4a8c8-0716/ \
     --seed 1024 \
     --served-model-name glm-5 \
     --max-model-len 204800 \
-    --additional-config '{"recompute_scheduler_enable": false, "enable_dsa_cp": true, "enable_sparse_sfa_c8": true, "enable_sparse_li_c8": true, "c8_enable_reshape_optim": true}' \
+    --additional-config '{"recompute_scheduler_enable" : false,"multistream_overlap_shared_expert": true, "enable_dsa_cp":true,"enable_sparse_sfa_c8": true, "enable_sparse_li_c8": true,"c8_enable_reshape_optim":false}' \
     --max-num-batched-tokens 8192 \
     --trust-remote-code \
     --max-num-seqs 64 \
@@ -81,7 +81,7 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-w4a8c8-0716/ \
     --enable-chunked-prefill \
     --enable-prefix-caching \
     --quantization ascend \
-    --gpu-memory-utilization 0.92 \
+    --gpu-memory-utilization 0.9 \
     --enforce-eager \
     --disable-hybrid-kv-cache-manager \
     --enable-auto-tool-choice \

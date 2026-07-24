@@ -80,14 +80,17 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-w4a8c8-0716/ \
     --seed 1024 \
     --served-model-name glm-5 \
     --disable-hybrid-kv-cache-manager \
-    --max-model-len 204800 \
-    --max-num-batched-tokens 64 \
+    --max-model-len 1024000 \
+    --max-num-batched-tokens 128 \
     --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
-    --additional-config '{"recompute_scheduler_enable":true,"multistream_overlap_shared_expert":true,"enable_sparse_sfa_c8": true, "enable_sparse_li_c8": true}' \
+    --additional-config '{"recompute_scheduler_enable": true, "enable_sparse_sfa_c8": true, "enable_sparse_li_c8": true}' \
     --trust-remote-code \
     --speculative-config '{"num_speculative_tokens": 5, "method":"deepseek_mtp","enforce_eager":true}' \
-    --max-num-seqs 48 \
-    --gpu-memory-utilization 0.9 \
+    --prefill-context-parallel-size 1 \
+    --decode-context-parallel-size 4 \
+    --cp-kv-cache-interleave-size 128 \
+    --max-num-seqs 64 \
+    --gpu-memory-utilization 0.88 \
     --async-scheduling \
     --quantization ascend \
     --enable-auto-tool-choice \
@@ -106,12 +109,12 @@ vllm serve /mnt/sfs_turbo_glm5/model/GLM-5.2-w4a8c8-0716/ \
                 "kv_port": "30200",
                 "kv_connector_extra_config": {
                     "prefill": {
-                        "dp_size": 2,
-                        "tp_size": 8
+                        "dp_size": 1,
+                        "tp_size": 16
                     },
                     "decode": {
-                        "dp_size": 8,
-                        "tp_size": 2
+                        "dp_size": 4,
+                        "tp_size": 4
                     }
                 }
             },
